@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use eframe::{
     egui::{self, Color32, RichText},
     epi,
@@ -10,8 +12,30 @@ use eframe::{
 pub struct AppState {
     // Example stuff:
     link_input: String,
-    links: Vec<String>,
-    selected: Option<usize>,
+    label_input: String,
+    links: HashMap<String, Link>,
+    selected: Option<String>,
+}
+
+#[derive(Default)]
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "persistence", serde(default))] //
+pub struct Link {
+    pub url: String,
+    pub labels: Vec<String>,
+}
+
+impl Link {
+    pub fn new(url: String) -> Self {
+        Self {
+            url,
+            labels: Default::default(),
+        }
+    }
+
+    pub fn add_label(&mut self, label: String) {
+        self.labels.push(label);
+    }
 }
 
 impl epi::App for AppState {
@@ -48,6 +72,7 @@ impl epi::App for AppState {
             link_input,
             links,
             selected,
+            label_input,
         } = self;
 
         // Examples of how to create different panels and windows.
@@ -69,13 +94,11 @@ impl epi::App for AppState {
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
             ui.heading("Add Link");
             ui.spacing();
+            let mut add_link = None;
             ui.horizontal(|ui| {
                 let response = ui.text_edit_singleline(link_input);
                 if response.lost_focus() && ui.input().key_pressed(egui::Key::Enter) {
-                    if link_input.len() > 0 {
-                        links.push(link_input.clone());
-                        link_input.clear();
-                    }
+                    add_link = Some(link_input.clone());
                     response.request_focus();
                 }
                 ui.add_enabled_ui(link_input.len() > 0, |ui| {
@@ -85,32 +108,37 @@ impl epi::App for AppState {
                         .on_hover_text("Save link to link list")
                         .clicked()
                     {
-                        // Add a link
-                        if link_input.len() > 0 {
-                            links.push(link_input.clone());
-                            link_input.clear();
-                        }
+                        add_link = Some(link_input.clone());
                     }
                 });
             });
+
+            if let Some(new_link) = add_link {
+                let new_link = new_link.trim().to_string();
+                if new_link.len() > 0 && !links.contains_key(&new_link) {
+                    links.insert(new_link.clone(), Link::new(new_link));
+                    link_input.clear();
+                }
+            }
 
             ui.separator();
             if !links.is_empty() {
                 ui.heading(format!("Links ({}):", links.len()));
                 ui.spacing();
-                for (i, link) in links.iter().enumerate() {
+                for (url, link) in links.iter() {
                     if ui
-                        .button(RichText::new(link).color(
-                            if selected.map(|s| s == i).unwrap_or(false) {
+                        .button(RichText::new(url).color(
+                            if selected.clone().map(|s| &s == url).unwrap_or(false) {
                                 Color32::RED
                             } else {
                                 Color32::WHITE
                             },
                         ))
+                        .on_hover_text(format!("Labels: {}", link.labels.join(", ")))
                         .clicked()
                     {
                         // Open link
-                        *selected = Some(i);
+                        *selected = Some(url.clone());
                     }
                 }
             } else {
@@ -120,20 +148,57 @@ impl epi::App for AppState {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if selected.is_some() {
-                if let Some(link) = links.get(selected.unwrap()) {
-                    ui.hyperlink(link);
-                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.button("Copy").clicked() {
-                                // Copy link to clipboard
-                            }
-                            if ui.button("Delete").clicked() {
-                                // Delete link
-                                links.remove(selected.unwrap());
-                                *selected = None;
-                            }
-                        });
+                if let Some(link) = links.get_mut(&selected.clone().unwrap()) {
+                    let mut add_label = None;
+                    let mut remove_link = None;
+                    ui.horizontal(|ui| {
+                        if ui.button("Copy").clicked() {
+                            // Copy link to clipboard
+                        }
+                        if ui.button("Edit").clicked() {
+                            // Copy link to clipboard
+                        }
+                        ui.separator();
+                        if ui
+                            .button(RichText::new("Delete").color(Color32::RED))
+                            .clicked()
+                        {
+                            remove_link = Some(link.url.clone());
+                        }
                     });
+                    ui.separator();
+                    ui.add(egui::Hyperlink::from_label_and_url(
+                        RichText::new(link.url.clone()).heading(),
+                        link.url.clone(),
+                    ));
+                    ui.label(RichText::new(link.labels.join(", ")).color(Color32::GOLD));
+
+                    ui.separator();
+                    ui.heading("Add Label:");
+                    ui.spacing();
+                    ui.horizontal(|ui| {
+                        let response = ui.text_edit_singleline(label_input);
+                        if response.lost_focus() && ui.input().key_pressed(egui::Key::Enter) {
+                            add_label = Some(label_input.clone());
+                            response.request_focus();
+                        }
+                        if ui.button("+").on_hover_text("Add label").clicked() {
+                            add_label = Some(label_input.clone());
+                        }
+                    });
+
+                    if let Some(new_label) = add_label {
+                        let new_label = new_label.trim().to_string();
+                        if new_label.len() > 0 && !link.labels.contains(&new_label) {
+                            link.add_label(new_label.clone());
+                            label_input.clear();
+                        }
+                    }
+
+                    if let Some(to_remove_link) = remove_link {
+                        links.remove(&to_remove_link);
+                        *selected = None;
+                    }
                 } else {
                     ui.label(RichText::new("Link not found.").color(Color32::GRAY));
                 }
