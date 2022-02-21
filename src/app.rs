@@ -1,30 +1,22 @@
-use eframe::{egui, epi};
+use eframe::{
+    egui::{self, Color32, RichText},
+    epi,
+};
 
+#[derive(Default)]
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
+pub struct AppState {
     // Example stuff:
-    label: String,
-
-    // this how you opt-out of serialization of a member
-    #[cfg_attr(feature = "persistence", serde(skip))]
-    value: f32,
+    link_input: String,
+    links: Vec<String>,
+    selected: Option<usize>,
 }
 
-impl Default for TemplateApp {
-    fn default() -> Self {
-        Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
-        }
-    }
-}
-
-impl epi::App for TemplateApp {
+impl epi::App for AppState {
     fn name(&self) -> &str {
-        "eframe template"
+        "Linkser"
     }
 
     /// Called once before the first frame.
@@ -51,8 +43,12 @@ impl epi::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
-    fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
-        let Self { label, value } = self;
+    fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
+        let Self {
+            link_input,
+            links,
+            selected,
+        } = self;
 
         // Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -63,47 +59,88 @@ impl epi::App for TemplateApp {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Quit").clicked() {
-                        frame.quit();
+                    if ui.button("Load").clicked() {
+                        // Load from disk
                     }
                 });
             });
         });
 
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
-
+            ui.heading("Add Link");
+            ui.spacing();
             ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(label);
-            });
-
-            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                *value += 1.0;
-            }
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("powered by ");
-                    ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-                    ui.label(" and ");
-                    ui.hyperlink_to("eframe", "https://github.com/emilk/egui/tree/master/eframe");
+                let response = ui.text_edit_singleline(link_input);
+                if response.lost_focus() && ui.input().key_pressed(egui::Key::Enter) {
+                    if link_input.len() > 0 {
+                        links.push(link_input.clone());
+                        link_input.clear();
+                    }
+                    response.request_focus();
+                }
+                ui.add_enabled_ui(link_input.len() > 0, |ui| {
+                    if ui
+                        .button("+")
+                        .on_disabled_hover_text("Type link before adding to list")
+                        .on_hover_text("Save link to link list")
+                        .clicked()
+                    {
+                        // Add a link
+                        if link_input.len() > 0 {
+                            links.push(link_input.clone());
+                            link_input.clear();
+                        }
+                    }
                 });
             });
+
+            ui.separator();
+            if !links.is_empty() {
+                ui.heading(format!("Links ({}):", links.len()));
+                ui.spacing();
+                for (i, link) in links.iter().enumerate() {
+                    if ui
+                        .button(RichText::new(link).color(
+                            if selected.map(|s| s == i).unwrap_or(false) {
+                                Color32::RED
+                            } else {
+                                Color32::WHITE
+                            },
+                        ))
+                        .clicked()
+                    {
+                        // Open link
+                        *selected = Some(i);
+                    }
+                }
+            } else {
+                ui.label(RichText::new("Add a link to the list.").color(Color32::GRAY));
+            }
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            if selected.is_some() {
+                if let Some(link) = links.get(selected.unwrap()) {
+                    ui.hyperlink(link);
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button("Copy").clicked() {
+                                // Copy link to clipboard
+                            }
+                            if ui.button("Delete").clicked() {
+                                // Delete link
+                                links.remove(selected.unwrap());
+                                *selected = None;
+                            }
+                        });
+                    });
+                } else {
+                    ui.label(RichText::new("Link not found.").color(Color32::GRAY));
+                }
+            } else {
+                ui.label(RichText::new("Select a link to display details.").color(Color32::GRAY));
+            }
             // The central panel the region left after adding TopPanel's and SidePanel's
-
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
-            egui::warn_if_debug_build(ui);
         });
 
         if false {
